@@ -39,22 +39,20 @@ import org.apache.iceberg.TableMetadataParser;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.avro.AvroSchemaUtil;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.AlreadyExistsException;
 import org.apache.iceberg.exceptions.CommitFailedException;
 import org.apache.iceberg.relocated.com.google.common.collect.Lists;
 import org.apache.iceberg.types.Types;
 import org.assertj.core.api.Assertions;
+import org.junit.Assert;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.projectnessie.error.NessieConflictException;
 import org.projectnessie.error.NessieNotFoundException;
 import org.projectnessie.jaxrs.ext.NessieUri;
-import org.projectnessie.model.Branch;
-import org.projectnessie.model.CommitMeta;
-import org.projectnessie.model.ContentKey;
-import org.projectnessie.model.IcebergTable;
+import org.projectnessie.model.*;
 import org.projectnessie.model.LogResponse.LogEntry;
-import org.projectnessie.model.Operation;
 
 import static org.apache.iceberg.TableMetadataParser.getFileExtension;
 import static org.apache.iceberg.types.Types.NestedField.optional;
@@ -356,6 +354,77 @@ public class TestNessieTable extends BaseTestIceberg {
     Assertions.assertThat(catalog.tableExists(TABLE_IDENTIFIER)).isTrue();
   }
 
+  @Test
+  public void testRegisterTableWithGivenBranch()  {
+
+    List<String> metadataVersionFiles = metadataVersionFiles(TABLE_NAME);
+    Assert.assertEquals(1, metadataVersionFiles.size());
+
+    catalog.registerTable(TableIdentifier.of(DB_NAME,"`" + TABLE_NAME + "@main`"), "file:" + metadataVersionFiles.get(0));
+    Table newTable = catalog.loadTable(TableIdentifier.of(DB_NAME,"`" + TABLE_NAME + "@main`"));
+    Assert.assertNotNull(newTable);
+    TableOperations ops = ((HasTableOperations) newTable).operations();
+    String metadataLocation = ((NessieTableOperations) ops).currentMetadataLocation();
+    Assert.assertEquals("file:" + metadataVersionFiles.get(0),metadataLocation);
+    Assertions.assertThat(catalog.tableExists(TableIdentifier.of(DB_NAME,"`" + TABLE_NAME + "@main`"))).isTrue();
+    boolean b = catalog.dropTable(TableIdentifier.of(DB_NAME, "`" + TABLE_NAME + "@main`"), false);
+
+  }
+
+  @Test
+  public void testRegisterTableBranchNotPresent()  {
+
+    List<String> metadataVersionFiles = metadataVersionFiles(TABLE_NAME);
+    Assert.assertEquals(1, metadataVersionFiles.size());
+
+    Assertions.assertThatThrownBy(() ->     catalog.registerTable(TableIdentifier.of(DB_NAME,"`" + TABLE_NAME + "`@default"), "file:" + metadataVersionFiles.get(0)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                    "Nessie ref 'default' does not exist");
+
+  }
+
+  @Test
+  public void testRegisterTableWithDefaultBranch()  {
+
+    List<String> metadataVersionFiles = metadataVersionFiles(TABLE_NAME);
+    Assert.assertEquals(1, metadataVersionFiles.size());
+
+    catalog.registerTable(TABLE_IDENTIFIER, "file:" + metadataVersionFiles.get(0));
+
+    Table newTable = catalog.loadTable(TABLE_IDENTIFIER);
+    Assert.assertNotNull(newTable);
+    TableOperations ops = ((HasTableOperations) newTable).operations();
+    String metadataLocation = ((NessieTableOperations) ops).currentMetadataLocation();
+    Assert.assertEquals("file:" + metadataVersionFiles.get(0),metadataLocation);
+
+    Assertions.assertThat(catalog.tableExists(TABLE_IDENTIFIER)).isTrue();
+    catalog.dropTable(TABLE_IDENTIFIER);
+
+  }
+  @Test
+  public void testRegisterTableTableAlreadyExists() {
+    List<String> metadataVersionFiles = metadataVersionFiles(TABLE_NAME);
+    Assert.assertEquals(1, metadataVersionFiles.size());
+
+    Assertions.assertThatThrownBy(() ->     catalog.registerTable(TABLE_IDENTIFIER, "file:" + metadataVersionFiles.get(0)))
+            .isInstanceOf(AlreadyExistsException.class)
+            .hasMessage(
+                    "Table already exists: db.tbl");
+  }
+
+  @Test
+  public void testRegisterTableTagName() throws NessieConflictException, NessieNotFoundException {
+    List<String> metadataVersionFiles = metadataVersionFiles(TABLE_NAME);
+    Assert.assertEquals(1, metadataVersionFiles.size());
+    api.createReference().sourceRefName(BRANCH).reference(Tag.of("tag_1",catalog.currentHash())).create();
+
+    Assertions.assertThatThrownBy(() ->     catalog.registerTable(TableIdentifier.of(DB_NAME,"`" + TABLE_NAME + "`@tag_1"), "file:" + metadataVersionFiles.get(0)))
+            .isInstanceOf(IllegalArgumentException.class)
+            .hasMessage(
+                    "You can only mutate tables when using a branch without a hash or timestamp.");
+
+  }
   private String getTableBasePath(String tableName) {
     String databasePath = temp.toString() + "/" + DB_NAME;
     return Paths.get(databasePath, tableName).toAbsolutePath().toString();

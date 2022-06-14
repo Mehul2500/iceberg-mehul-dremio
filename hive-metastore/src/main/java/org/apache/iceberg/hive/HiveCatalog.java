@@ -234,22 +234,7 @@ public class HiveCatalog extends BaseMetastoreCatalog implements SupportsNamespa
     }
   }
 
-  @Override
-  public org.apache.iceberg.Table registerTable(TableIdentifier identifier, String metadataFileLocation) {
-    Preconditions.checkArgument(isValidIdentifier(identifier), "Invalid identifier: %s", identifier);
 
-    // Throw an exception if this table already exists in the catalog.
-    if (tableExists(identifier)) {
-      throw new org.apache.iceberg.exceptions.AlreadyExistsException("Table already exists: %s", identifier);
-    }
-
-    TableOperations ops = newTableOps(identifier);
-    InputFile metadataFile = fileIO.newInputFile(metadataFileLocation);
-    TableMetadata metadata = TableMetadataParser.read(ops.io(), metadataFile);
-    ops.commit(null, metadata);
-
-    return new BaseTable(ops, identifier.toString());
-  }
 
   @Override
   public void createNamespace(Namespace namespace, Map<String, String> meta) {
