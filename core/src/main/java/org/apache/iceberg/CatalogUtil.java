@@ -20,10 +20,16 @@
 package org.apache.iceberg;
 
 import java.io.IOException;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.*;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hc.core5.util.TextUtils;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.common.DynClasses;
 import org.apache.iceberg.common.DynConstructors;
 import org.apache.iceberg.common.DynMethods;
@@ -345,5 +351,40 @@ public class CatalogUtil {
     }
 
     setConf.invoke(conf);
+  }
+
+  /**
+   * Used to migrate tables from one catalog(source catalog) to another catalog(target catalog).
+   * Also, the table would be dropped off from the source catalog once the migration is successful.
+   *
+   * @param tableIdentifiers a list of tableIdentifiers for the tables required to be migrated, if not specified all the tables would be migrated
+   * @param sourceCatalogProperties Source Catalog Properties
+   * @param targetCatalogProperties Target Catalog Properties
+   * @param sourceHadoopConfig Source Catalog Hadoop Configuration
+   * @param targetHadoopConfig Target Catalog Hadoop Configuration
+   */
+  public static void migrateTables(List<TableIdentifier> tableIdentifiers, Map<String, String> sourceCatalogProperties, Map<String, String> targetCatalogProperties,
+      Object sourceHadoopConfig, Object targetHadoopConfig) throws ClassNotFoundException, InstantiationException, IllegalAccessException, NoSuchMethodException, InvocationTargetException {
+    Catalog sourceCatalog = loadCatalog(sourceCatalogProperties.get("catalogImpl"), sourceCatalogProperties.get("catalogName"), sourceCatalogProperties, sourceHadoopConfig);
+    Catalog targetCatalog = loadCatalog(targetCatalogProperties.get("catalogImpl"), targetCatalogProperties.get("catalogName"), targetCatalogProperties, targetHadoopConfig);
+    if(tableIdentifiers == null || tableIdentifiers.isEmpty())
+    {
+      Class[] paramString = new Class[1];
+      paramString[0] = Namespace.class;
+      Class cls = Class.forName(sourceCatalogProperties.get("catalogImpl"));
+      Object obj = cls.newInstance();
+      Method method = cls.getDeclaredMethod("listNamespaces", paramString);
+      method.invoke(obj, Namespace.empty());
+    }
+    tableIdentifiers.forEach(tableIdentifier -> {
+      Preconditions.checkArgument(
+              tableIdentifier != null, "Invalid identifier: %s", tableIdentifier);//push this out to new for loop
+      final Table icebergTable = sourceCatalog.loadTable(tableIdentifier);//for nessie check for branch name, list tables in case tableIdentifier is null
+      TableOperations ops = ((HasTableOperations) icebergTable).operations();
+      String metadataLocation = ops.current().metadataFileLocation();
+      targetCatalog.registerTable(tableIdentifier, metadataLocation);
+      if(!(sourceCatalogProperties.get("catalogImpl").equals("org.apache.iceberg.hadoop.HadoopCatalog")))//hadoop purge false deletes the table completely
+        sourceCatalog.dropTable(tableIdentifier, false);
+    });
   }
 }

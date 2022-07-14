@@ -36,7 +36,7 @@ public abstract class HiveMetastoreTest {
   protected static final long EVICTION_INTERVAL = TimeUnit.SECONDS.toMillis(10);
 
   protected static HiveMetaStoreClient metastoreClient;
-  protected static HiveCatalog catalog;
+  public static HiveCatalog catalog;
   protected static HiveConf hiveConf;
   protected static TestHiveMetastore metastore;
 

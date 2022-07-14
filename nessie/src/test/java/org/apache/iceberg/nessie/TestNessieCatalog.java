@@ -64,10 +64,10 @@ public class TestNessieCatalog extends CatalogTests<NessieCatalog> {
 
   @TempDir public Path temp;
 
-  private NessieCatalog catalog;
+  public static NessieCatalog catalog;
   private NessieApiV1 api;
   private Configuration hadoopConfig;
-  private String uri;
+  private static String uri;
 
   @BeforeEach
   public void beforeEach(@NessieUri URI nessieUri) throws IOException {
@@ -127,6 +127,10 @@ public class TestNessieCatalog extends CatalogTests<NessieCatalog> {
             CatalogProperties.WAREHOUSE_LOCATION,
             temp.toUri().toString()));
     return newCatalog;
+  }
+  public static String getUri()
+  {
+    return uri;
   }
 
   @Override
